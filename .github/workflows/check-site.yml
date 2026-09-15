@@ -1,0 +1,24 @@
+name: 海外可访问性检测
+# 这个文件叫"工作流"：每次push代码，GitHub会用美国机房的服务器执行下面的任务
+on: [push, workflow_dispatch]
+
+jobs:
+  check-site:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 从海外访问网站并汇报
+        run: |
+          URL="https://todo-practice-ribcyosq.edgeone.dev/"
+          echo "=== 侦察兵报告：从GitHub美国机房访问 $URL ==="
+          HTTP_CODE=$(curl -s -o /tmp/page.html -w "%{http_code}" --max-time 30 "$URL")
+          echo "HTTP状态码: $HTTP_CODE"
+          echo "--- 网页标题 ---"
+          grep -o "<title>[^<]*</title>" /tmp/page.html || echo "(未找到标题)"
+          echo "--- 内容抽查 ---"
+          grep -o "棍儿哥的待办清单" /tmp/page.html | head -1 || echo "(未找到内容关键词)"
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "✅ 结论：网站从海外访问正常，产品已上线！"
+          else
+            echo "❌ 结论：海外访问异常（状态码 $HTTP_CODE）"
+            exit 1
+          fi
