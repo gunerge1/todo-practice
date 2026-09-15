@@ -2,7 +2,7 @@
 // 数据目前存在浏览器的 localStorage 里（只存在于你这台电脑的浏览器中）
 // Day 4 会把它换成云数据库 Supabase，到那时任何设备都能看到同一份数据
 
-const STORAGE_KEY = "todos";
+const STORAGE_KEY = "todos
 
 let todos = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
 
