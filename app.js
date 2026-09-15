@@ -1,9 +1,14 @@
-// ===== 待办清单核心逻辑（云数据库版） =====
-// 数据存储在 Supabase 云数据库：任何设备、任何浏览器，访问的都是同一份数据
-// （之前 localStorage 里的旧练习数据不迁移，反正是测试数据）
-// 出问题时：按 F12 看 Console 的红色报错 —— 老规矩，报错是地址不是乱码
+// ===== 待办清单核心逻辑（云数据库版·零依赖直连） =====
+// 不加载任何外部库：直接用浏览器原生的 fetch 和 Supabase 的 REST API 对话
+// 好处：不怕CDN抽风、不怕预览沙箱限制storage、少一个依赖少一个故障点
+// 出问题时：F12 看 Console 红字 + Network 标签看请求状态码
 
-const client = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const API = SUPABASE_URL + "/rest/v1/todos";
+const HEADERS = {
+  "apikey": SUPABASE_KEY,
+  "Authorization": "Bearer " + SUPABASE_KEY,
+  "Content-Type": "application/json",
+};
 
 const form = document.getElementById("todo-form");
 const input = document.getElementById("todo-input");
@@ -38,48 +43,58 @@ function render(todos) {
   count.textContent = `共 ${todos.length} 项，还有 ${left} 项没完成`;
 }
 
-// 从云数据库读取全部待办
-async function load() {
-  const { data, error } = await client.from("todos").select("*").order("id", { ascending: true });
-  if (error) {
-    console.error("读取数据库失败:", error.message);
-    count.textContent = "⚠️ 读取数据库失败，按F12看Console报错";
-    return;
+// 统一处理响应：出问题就把服务器的话打到Console
+async function request(url, options) {
+  const resp = await fetch(url, options);
+  if (!resp.ok) {
+    const body = await resp.text();
+    console.error(`数据库操作失败 HTTP ${resp.status}:`, body);
+    count.textContent = `⚠️ 数据库操作失败(HTTP ${resp.status})，按F12看Console`;
+    return null;
   }
-  render(data);
+  return resp;
 }
 
-// 添加一条待办（写进云端）
+// 读取：GET /todos?select=*&order=id.asc
+async function load() {
+  const resp = await request(API + "?select=*&order=id.asc", { headers: HEADERS });
+  if (!resp) return;
+  render(await resp.json());
+}
+
+// 添加：POST，请求体是新待办的JSON
 form.addEventListener("submit", async (e) => {
   e.preventDefault(); // 阻止表单默认的刷新页面行为
   const text = input.value.trim();
   if (!text) return;
-  const { error } = await client.from("todos").insert({ text: text, done: false });
-  if (error) {
-    console.error("写入失败:", error.message);
-    return;
-  }
+  const resp = await request(API, {
+    method: "POST",
+    headers: { ...HEADERS, "Prefer": "return=minimal" },
+    body: JSON.stringify({ text: text, done: false }),
+  });
+  if (!resp) return;
   input.value = "";
   load();
 });
 
-// 勾选 / 取消勾选（更新云端）
+// 勾选/取消：PATCH ?id=eq.编号，请求体是新的done值
 async function toggle(todo) {
-  const { error } = await client.from("todos").update({ done: !todo.done }).eq("id", todo.id);
-  if (error) {
-    console.error("更新失败:", error.message);
-    return;
-  }
+  const resp = await request(API + "?id=eq." + todo.id, {
+    method: "PATCH",
+    headers: { ...HEADERS, "Prefer": "return=minimal" },
+    body: JSON.stringify({ done: !todo.done }),
+  });
+  if (!resp) return;
   load();
 }
 
-// 删除一条待办（从云端删）
+// 删除：DELETE ?id=eq.编号
 async function remove(todo) {
-  const { error } = await client.from("todos").delete().eq("id", todo.id);
-  if (error) {
-    console.error("删除失败:", error.message);
-    return;
-  }
+  const resp = await request(API + "?id=eq." + todo.id, {
+    method: "DELETE",
+    headers: HEADERS,
+  });
+  if (!resp) return;
   load();
 }
 
