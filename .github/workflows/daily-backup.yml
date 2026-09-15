@@ -1,0 +1,45 @@
+name: 每日自动备份
+# 每天北京时间21:30自动备份Supabase数据库到本仓库backups/文件夹
+on:
+  schedule:
+    - cron: '30 13 * * *'   # GitHub只认UTC：13:30 UTC = 北京时间21:30（差8小时，运维经典坑）
+  workflow_dispatch:          # 允许手动触发（测试用）
+
+permissions:
+  contents: write             # 授予机器人向仓库提交文件的权限
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 取仓库代码
+        uses: actions/checkout@v4
+
+      - name: 从数据库拉取最新备份
+        env:
+          SB_URL: ${{ secrets.SUPABASE_URL }}
+          SB_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: |
+          mkdir -p backups
+          curl -s --fail "$SB_URL/rest/v1/todos?select=*&order=id.asc" \
+            -H "apikey: $SB_KEY" \
+            -H "Authorization: Bearer $SB_KEY" \
+            -o todos-latest.json
+          DATE=$(TZ=Asia/Shanghai date +%Y%m%d-%H%M%S)
+          cp todos-latest.json "backups/todos-$DATE.json"
+          echo "备份完成：backups/todos-$DATE.json"
+
+      - name: 只保留最近7份，清理更老的
+        run: ls -t backups/todos-*.json | tail -n +8 | xargs -r rm --
+
+      - name: 提交并推送（数据无变化则跳过）
+        run: |
+          git config user.name "backup-robot"
+          git config user.email "backup-robot@users.noreply.github.com"
+          git add backups/
+          if git diff --cached --quiet; then
+            echo "数据无变化，今天不用提交"
+          else
+            git commit -m "🤖 每日自动备份 $(TZ=Asia/Shanghai date +%F)"
+            git push
+          fi
